@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.Build;
@@ -12,7 +13,10 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.SlidingDrawer;
@@ -50,12 +54,13 @@ import dji.sdk.sdkmanager.DJISDKManager;
 
 import static com.example.test.MainActivity.FLAG_CONNECTION_CHANGE;
 
-public class Media extends AppCompatActivity implements View.OnClickListener{
+public class Media extends AppCompatActivity {
     private static final String TAG = Media.class.getName();
-    private Button mediaFilesButton, startButton, downloadButton ;
+    private Button syncButton, backButton, refreshButton;
 
 
     private List<MediaFile> mediaFileList = new ArrayList<MediaFile>();
+
     private MediaManager mMediaManager;
     private MediaManager.FileListState currentFileListState = MediaManager.FileListState.UNKNOWN;
     private FetchMediaTaskScheduler scheduler;
@@ -64,9 +69,12 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
     private Handler mHandler;
     private int lastProcess = -1;
     private ProgressBar progressBar;
+    private File destDir;
     private Handler mHander = new Handler();
+    private Thread t1;
+    private int currIndex;
 
-    File destDir = new File(Environment.getExternalStorageDirectory().getPath() + "/MediaManagerDemo/");
+
     private int currentProgress = -1;
 
     private int lastClickViewIndex =-1;
@@ -89,20 +97,217 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
     private List<String> missingPermission = new ArrayList<>();
     private AtomicBoolean isRegistrationInProgress = new AtomicBoolean(false);
     private static final int REQUEST_PERMISSION_CODE = 12345;
+    private SharedPreferences sPref;
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     private static BaseProduct mProduct;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+//            setTurnScreenOn(true);
+//            setShowWhenLocked(true);
+//        } else {
+//            Window window = getWindow();
+//            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+//            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+//        }
 
         // When the compile and target version is higher than 22, please request the following permission at runtime to ensure the SDK works well.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             checkAndRequestPermissions();
         }
 
+
+//        boolean success = false;
+//        if(!destDir.exists()) {
+//            success = destDir.mkdirs();
+//        }
+//        if (success){
+//            System.out.println("YEAH");
+//        }
+
+//        try {
+//            File [] filelist = destDir.listFiles();
+//            if (null != filelist) {
+//                for (File f : filelist) {
+//                    setResultToToast("Testing Filename : " + f.getName());
+//                }
+//            }
+//        }catch(NullPointerException e){
+//            System.out.println(e.getMessage());
+//        }
         mHandler = new Handler(Looper.getMainLooper());
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.file_manager_view);
         initUI();
+        System.out.println("Testing iniUI()");
+        syncButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+                t1 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+
+                        while(running.get()) {
+                            initMediaManager();
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException ie) {
+
+                            }
+                        }
+                    }
+                });
+                if (t1.isAlive()){
+                    running.set(false);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            syncButton.setText("Start Sync");
+                            syncButton.setBackgroundColor(getResources().getColor(R.color.colorGreen));
+                        }
+                    });
+
+                    lastClickView = null;
+                    if (mMediaManager != null) {
+                        mMediaManager.stop(null);
+                        mMediaManager.removeFileListStateCallback(new MediaManager.FileListStateListener() {
+                            @Override
+                            public void onFileListStateChange(MediaManager.FileListState state) {
+                                currentFileListState = state;
+                            }
+                        });
+                        mMediaManager.exitMediaDownloading();
+                        if (scheduler!=null) {
+                            scheduler.removeAllTasks();
+                        }
+                    }
+                    getCameraInstance().setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, new CommonCallbacks.CompletionCallback() {
+                        @Override
+                        public void onResult(DJIError mError) {
+                            if (mError != null){
+                                setResultToToast("Set Shoot Photo Mode Failed" + mError.getDescription());
+                            }
+                        }
+                    });
+                    if (mediaFileList != null) {
+                        mediaFileList.clear();
+                    }
+                }else {
+                    running.set(true);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            syncButton.setText("Stop sync");
+                            syncButton.setBackgroundColor(getResources().getColor(R.color.colorRed));
+                        }
+                    });
+                    t1.start();
+                }
+
+            }
+        });
+        backButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (t1.isAlive()){
+                    running.set(false);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            syncButton.setText("Start Sync");
+                            syncButton.setBackgroundColor(getResources().getColor(R.color.colorGreen));
+                        }
+                    });
+//                    try {
+//                        t1.join();
+//                    } catch (InterruptedException e) {
+//                        e.printStackTrace();
+//                    }
+                    lastClickView = null;
+                    if (mMediaManager != null) {
+                        mMediaManager.stop(null);
+                        mMediaManager.removeFileListStateCallback(new MediaManager.FileListStateListener() {
+                            @Override
+                            public void onFileListStateChange(MediaManager.FileListState state) {
+                                currentFileListState = state;
+                            }
+                        });
+                        mMediaManager.exitMediaDownloading();
+                        if (scheduler!=null) {
+                            scheduler.removeAllTasks();
+                        }
+                    }
+                    getCameraInstance().setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, new CommonCallbacks.CompletionCallback() {
+                        @Override
+                        public void onResult(DJIError mError) {
+                            if (mError != null){
+                                setResultToToast("Set Shoot Photo Mode Failed" + mError.getDescription());
+                            }
+                        }
+                    });
+                    if (mediaFileList != null) {
+                        mediaFileList.clear();
+                    }
+                }
+            }
+        });
+
+
+    }
+    private void saveDate(String date) {
+        sPref = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor ed = sPref.edit();
+        ed.putString("latest date so far", date);
+        ed.apply();
+    }
+    private void savePrevDate(String date){
+        sPref = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor ed = sPref.edit();
+        ed.putString("previous date", date);
+        ed.apply();
+    }
+    private String loadPrevDate(){
+        sPref = getPreferences(MODE_PRIVATE);
+        String savedDate = sPref.getString("previous date", "");
+        return savedDate;
+    }
+
+    private String loadDate() {
+        sPref = getPreferences(MODE_PRIVATE);
+        String savedDate = sPref.getString("latest date so far", "");
+        return savedDate;
+    }
+    @Override
+    protected void onDestroy() {
+//        if (mediaFileList.size() != 0) {
+//            raisePrevMediaFileDate();
+//        }
+        lastClickView = null;
+        if (mMediaManager != null) {
+            mMediaManager.stop(null);
+            mMediaManager.removeFileListStateCallback(this.updateFileListStateListener);
+//            mMediaManager.removeMediaUpdatedVideoPlaybackStateListener(updatedVideoPlaybackStateListener);
+            mMediaManager.exitMediaDownloading();
+            if (scheduler!=null) {
+                scheduler.removeAllTasks();
+            }
+        }
+        getCameraInstance().setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, new CommonCallbacks.CompletionCallback() {
+            @Override
+            public void onResult(DJIError mError) {
+                if (mError != null){
+                    setResultToToast("Set Shoot Photo Mode Failed" + mError.getDescription());
+                }
+            }
+        });
+
+        if (mediaFileList != null) {
+            mediaFileList.clear();
+        }
+        super.onDestroy();
     }
 
     void initUI() {
@@ -128,30 +333,65 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
                 }
             }
         });
-        mediaFilesButton = findViewById(R.id.mediafilesBtn);
-        downloadButton = findViewById(R.id.downloadBtn);
-        startButton = findViewById(R.id.startBtn);
+        syncButton = findViewById(R.id.syncButton);
+        backButton = findViewById(R.id.backButton);
+        refreshButton = findViewById(R.id.refreshButton);
+    }
+    private List<MediaFile> checkForNewestMedia(){
 
-        mediaFilesButton.setOnClickListener(this);
-        downloadButton.setOnClickListener(this);
-        startButton.setOnClickListener(this);
+        List<MediaFile> newMediaFileList = new ArrayList<MediaFile>();
+//        String path = Environment.getExternalStorageDirectory().toString()+"/MediaManagerFiles/";
+//        File directory = new File(path);
+//        File[] files = directory.listFiles();
+//        boolean b = false;
+        System.out.println("Testing checkFNM "+mediaFileList.size());
+        for (int i = 0; i < mediaFileList.size(); i++){
+            if (!loadDate().equals(mediaFileList.get(i).getDateCreated())){
+                System.out.println("Testing "+loadDate()+"<"+mediaFileList.get(i).getDateCreated());
+                newMediaFileList.add(i,mediaFileList.get(i));
+            }
+            else{
+                break;
+            }
+        }
+        System.out.println("Testing"+newMediaFileList.size());
+        return newMediaFileList;
+    }
 
-
+    private static class Comparators {
+        private static final Comparator<MediaFile> NAME = (MediaFile o1, MediaFile o2) -> o1.getFileName().compareTo(o2.getFileName());
+        private static final Comparator<MediaFile> TIME = (MediaFile o1, MediaFile o2) -> Long.compare(o1.getTimeCreated(), o2.getTimeCreated());
+//        public static final Comparator<MediaFile> NAMEANDAGE = (MediaFile o1, MediaFile o2) -> NAME.thenComparing(TIME).compare(o1, o2);
+    }
+    private void raiseCurrMediaFileDate(){
+        saveDate(mediaFileList.get(currIndex).getDateCreated());
     }
 
     private void downloadFileByIndex(){
-        for (int index = 0; index < mediaFileList.size(); index++) {
+        System.out.println("Testing mediaFileList has: "+mediaFileList.size());
+        for (int index = mediaFileList.size()-1; index > -1; index--) {
+            currIndex = index;
             if ((mediaFileList.get(index).getMediaType() == MediaFile.MediaType.PANORAMA)
                     || (mediaFileList.get(index).getMediaType() == MediaFile.MediaType.SHALLOW_FOCUS)) {
+                System.out.println("Testing idk");
                 return;
             }
-
+            destDir = new File(Environment.getExternalStorageDirectory().getPath() + "/MediaManagerFiles/");
+//            final String date = mediaFileList.get(0).getDateCreated();
+//            if (index == mediaFileList.size()-1){
+//                saveDate("");
+//            } else{
+//                saveDate(mediaFileList.get(index + 1).getDateCreated());
+//            }
             mediaFileList.get(index).fetchFileData(destDir, null, new DownloadListener<String>() {
                 @Override
                 public void onFailure(DJIError error) {
                     HideDownloadProgressDialog();
-                    //setResultToToast("Download File Failed" + error.getDescription());
+                    setResultToToast("Testing Download File Failed" + error.getDescription());
+
                     currentProgress = -1;
+
+
                 }
 
                 @Override
@@ -169,38 +409,48 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
 
                 @Override
                 public void onStart() {
+                    System.out.println("Testing starting download");
                     currentProgress = -1;
                     ShowDownloadProgressDialog();
                 }
 
                 @Override
                 public void onSuccess(String filePath) {
+                    raiseCurrMediaFileDate();
                     HideDownloadProgressDialog();
-                    //setResultToToast("Download File Success" + ":" + filePath);
+                    setResultToToast("Download File Success" + ":" + filePath);
                     currentProgress = -1;
                 }
             });
         }
     }
     private void initMediaManager() {
+
+        System.out.println("Testing inside initMM");
         if (getProductInstance() == null) {
+            System.out.println("Testing no product!");
             mediaFileList.clear();
-            DJILog.e(TAG, "Product disconnected");
+            DJILog.e(TAG, "Testing Product disconnected");
             return;
         } else {
             if (null != getCameraInstance() && getCameraInstance().isMediaDownloadModeSupported()) {
+                System.out.println("Testing Camera found");
                 mMediaManager = getCameraInstance().getMediaManager();
                 if (null != mMediaManager) {
+                    System.out.println("Testing Media Manager found");
                     mMediaManager.addUpdateFileListStateListener(this.updateFileListStateListener);
                     getCameraInstance().setMode(SettingsDefinitions.CameraMode.MEDIA_DOWNLOAD, new CommonCallbacks.CompletionCallback() {
                         @Override
                         public void onResult(DJIError error) {
                             if (error == null) {
+                                System.out.println("Testing Camera Mode success");
                                 DJILog.e(TAG, "Set cameraMode success");
                                 showProgressDialog();
                                 getFileList();
+                                System.out.println("Testing got file list");
                             } else {
                                 setResultToToast("Set cameraMode failed");
+                                System.out.println("Testing cameraMOde failed");
                             }
                         }
                     });
@@ -224,18 +474,20 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
 
     private void getFileList() {
         mMediaManager = getCameraInstance().getMediaManager();
+        System.out.println("Testing"+mMediaManager.toString());
         if (mMediaManager != null) {
 
-            if ((currentFileListState == MediaManager.FileListState.SYNCING) || (currentFileListState == MediaManager.FileListState.DELETING)){
+            if ((currentFileListState == MediaManager.FileListState.SYNCING) || (currentFileListState == MediaManager.FileListState.DELETING)) {
+                System.out.println("Testing MM is busy");
                 DJILog.e(TAG, "Media Manager is busy.");
-            }else{
-
+            } else {
+                System.out.println("Testing MM is not busy");
                 mMediaManager.refreshFileListOfStorageLocation(SettingsDefinitions.StorageLocation.SDCARD, new CommonCallbacks.CompletionCallback() {
                     @Override
                     public void onResult(DJIError djiError) {
                         if (null == djiError) {
                             hideProgressDialog();
-
+                            System.out.println("Testing refreshFLSL");
                             //Reset data
                             if (currentFileListState != MediaManager.FileListState.INCOMPLETE) {
                                 mediaFileList.clear();
@@ -244,7 +496,8 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
                             }
 
                             mediaFileList = mMediaManager.getSDCardFileListSnapshot();
-                            setResultToToast("SIZE OF MEDIALIST IS: " + mediaFileList.size());
+                            System.out.println("Testing"+mediaFileList.size());
+                            setResultToToast("Tesing SIZE OF MEDIALIST IS: " + mediaFileList.size());
                             Collections.sort(mediaFileList, new Comparator<MediaFile>() {
                                 @Override
                                 public int compare(MediaFile lhs, MediaFile rhs) {
@@ -256,6 +509,12 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
                                     return 0;
                                 }
                             });
+
+//                            System.out.println("Testing "+mediaFileList.get(0).getFileName() + ' '+mediaFileList.get(mediaFileList.size()-1).getFileName());
+                            mediaFileList = checkForNewestMedia();
+
+                            downloadFileByIndex();
+
 //                            scheduler.resume(new CommonCallbacks.CompletionCallback() {
 //                                @Override
 //                                public void onResult(DJIError error) {
@@ -266,12 +525,16 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
 //                            });
                         } else {
                             hideProgressDialog();
+
+                            System.out.println("Testing get media file list failed"+ djiError);
                             setResultToToast("Get Media File List Failed:" + djiError.getDescription());
                         }
                     }
                 });
 
             }
+        }else{
+            System.out.println("Testing mediamanager is null");
         }
     }
 
@@ -307,6 +570,7 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
     public static synchronized BaseProduct getProductInstance() {
         if (null == mProduct) {
             mProduct = DJISDKManager.getInstance().getProduct();
+            if(mProduct != null)System.out.println("mProduct is:"+mProduct.getModel().toString());
         }
         return mProduct;
     }
@@ -318,6 +582,7 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
         Camera camera = null;
         if (getProductInstance() instanceof Aircraft){
             camera = ((Aircraft) getProductInstance()).getCamera();
+            System.out.println("Testing camera instance"+camera.isMediaDownloadModeSupported());
         }
         return camera;
     }
@@ -331,7 +596,9 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
     private void setResultToToast(final String result) {
         runOnUiThread(new Runnable() {
             public void run() {
-                Toast.makeText(Media.this, result, Toast.LENGTH_SHORT).show();
+                Toast toast = Toast.makeText(Media.this, result, Toast.LENGTH_SHORT);
+                toast.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL, 0, 0);
+                toast.show();
             }
         });
     }
@@ -551,28 +818,5 @@ public class Media extends AppCompatActivity implements View.OnClickListener{
         }
     }
 
-    @Override
-    public void onClick(View v) {
-        switch (v.getId()) {
-
-            case R.id.startBtn:{
-                deleteFileByIndex(lastClickViewIndex);
-                break;
-            }
-            case R.id.mediafilesBtn: {
-                getFileList();
-                break;
-            }
-            case R.id.downloadBtn: {
-                downloadFileByIndex();
-                break;
-            }
-
-            default:
-                break;
-        }
-    }
-
 
 }
-
