@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:orientation="vertical" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".Media">
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="5dp"
+        android:visibility="gone"
+        android:max="100"
+        android:progress="0" />
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="DJI File Manager"
+        android:id="@+id/TitleTextView"
+        android:background="@color/colorPrimaryDark"
+        android:gravity="center"
+        android:textColor="@color/midware_white_half"
+        android:padding="6dp" />
+    <ListView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"></ListView>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:orientation="horizontal">
+        <Button
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:id="@+id/backButton"
+            android:layout_weight="1"
+            android:text="back"
+            android:gravity="center"></Button>
+        <Button
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:id="@+id/syncButton"
+            android:layout_weight="1"
+            android:text="start sync"
+            android:gravity="center"
+            android:background="@color/colorGreen">
+        </Button>
+        <Button
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:id="@+id/refreshButton"
+            android:layout_weight="1"
+            android:text="refresh files"
+            android:gravity="center"></Button>
+
+    </LinearLayout>
+</LinearLayout>
